@@ -30,6 +30,15 @@ app.get('/api/me', auth, async (req,res) => {
   if (error) return res.status(503).json({error:'Execute a migração de primeiro acesso no Supabase'});
   res.json({user:req.user,profile:req.profile,passwordChangeRequired:Boolean(pending),access:!pending});
 });
+app.get('/api/usuarios', auth, async (req,res) => {
+  if (!canManage(req)) return res.status(403).json({error:'Somente gestores podem consultar acessos'});
+  const {data:pending,error:pendingError} = await req.scoped.rpc('linko_troca_pendente');
+  if (pendingError) return res.status(503).json({error:'Não foi possível verificar o acesso'});
+  if (pending) return res.status(403).json({error:'Altere sua senha antes de consultar acessos'});
+  const {data,error} = await admin.from('usuarios').select('id,login,tipo,nome_equipe').order('login');
+  if (error) return res.status(500).json({error:error.message});
+  res.json(data);
+});
 app.get('/api/empresas', auth, async (req,res) => {
   let query=admin.from('empresas').select('*').order('nome');
   if (!canManage(req)) query=query.eq('id',req.profile.empresa_id);
@@ -62,3 +71,4 @@ app.delete('/api/obras/:id', auth, async (req,res) => {
 });
 app.use((err,_req,res,_next)=>{console.error(err);res.status(500).json({error:'Erro interno'});});
 app.listen(process.env.PORT||10000,()=>console.log('Linko Obras API na porta '+(process.env.PORT||10000)));
+
