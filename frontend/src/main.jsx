@@ -2,16 +2,18 @@ import React, {useEffect, useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {createClient} from '@supabase/supabase-js';
 import './styles.css';
+import {ObrasPanel} from './obras.jsx';
 
 const cfg = {url: import.meta.env.VITE_SUPABASE_URL, key: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY, api: import.meta.env.VITE_API_URL};
 let supabase = null;
 try { if (cfg.url && cfg.key) supabase = createClient(cfg.url, cfg.key); } catch {}
 const configured = Boolean(supabase && cfg.api);
-const pages = {overview: 'Visão geral', obras: 'Obras', empresas: 'Empresas', acessos: 'Acessos'};
+const pages = {overview: 'Visão geral', obras: 'Cadastro de obras', relatorios: 'Relatórios gerenciais', empresas: 'Empresas', acessos: 'Acessos'};
 const readPage = () => window.location.hash.slice(1) || 'overview';
 
-export async function request(path, token, signal) {
-  const response = await fetch(cfg.api.replace(/\/$/, '') + path, {headers: {Authorization: 'Bearer ' + token}, signal});
+export async function request(path, token, signal, options = {}) {
+  const response = await fetch(cfg.api.replace(/\/$/, '') + path, {...options, headers: {Authorization: 'Bearer ' + token, ...(options.body ? {'Content-Type':'application/json'} : {})}, signal});
+  if (response.status === 204 && response.ok) return null;
   let data;
   try { data = await response.json(); } catch { throw new Error('A API retornou uma resposta inválida.'); }
   if (!response.ok) throw new Error(data?.error || 'Não foi possível concluir a solicitação.');
@@ -73,6 +75,7 @@ function App() {
         setProfile(me);
         if (!me.access || me.passwordChangeRequired) return;
         const allowedPage = me.profile.tipo === 'gestor' ? page : (['empresas', 'acessos'].includes(page) ? 'overview' : page);
+        if (!['empresas', 'acessos'].includes(allowedPage)) return;
         const endpoint = allowedPage === 'empresas' ? '/api/empresas' : allowedPage === 'acessos' ? '/api/usuarios' : '/api/obras';
         const data = await request(endpoint, session.access_token, controller.signal);
         if (!Array.isArray(data)) throw new Error('A API retornou uma lista inválida.');
@@ -128,13 +131,10 @@ function App() {
   if (profile?.passwordChangeRequired) return <main className="auth"><form onSubmit={change} className="card"><h1>Crie sua nova senha</h1><p>A troca é obrigatória no primeiro acesso.</p><label>Nova senha<input type="password" autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)} minLength={12} required/></label><button disabled={busy}>{busy ? 'Salvando…' : 'Salvar senha'}</button><button type="button" disabled={busy} onClick={logout}>Sair</button>{feedback}</form></main>;
 
   const worksPage = visiblePage === 'overview' || visiblePage === 'obras';
-  const running = rows.filter(w => !w.data_fim && w.data_inicio).length;
-  const done = rows.filter(w => w.data_fim).length;
   return <div className="app"><aside><h1>Linko Obras</h1><p>Gerência Regional Sul</p><nav aria-label="Navegação principal">{Object.entries(pages).filter(([id]) => manager || !['empresas', 'acessos'].includes(id)).map(([id, label]) => <a key={id} href={'#' + id} aria-current={visiblePage === id ? 'page' : undefined}>{label}</a>)}</nav><button disabled={busy} onClick={logout}>{busy ? 'Aguarde…' : 'Sair'}</button></aside><main><header><div><span>PAINEL OPERACIONAL</span><h2>{pages[visiblePage]}</h2><p>{manager ? 'Todas as empresas parceiras' : 'Obras da sua empresa'}</p></div><button disabled={loading} onClick={() => setRefresh(n => n + 1)}>{loading ? 'Atualizando…' : 'Atualizar'}</button></header>{feedback}
     {!loading && profile && !profile.access && <p role="alert">Seu acesso ao painel ainda não foi liberado.</p>}
-    {visiblePage === 'overview' && profile?.access && !loading && !error && <div className="metrics"><div><span>Obras cadastradas</span><b>{rows.length}</b></div><div><span>Em andamento</span><b>{running}</b></div><div><span>Concluídas</span><b>{done}</b></div></div>}
-    <section className="card" aria-busy={loading}><h3>{visiblePage === 'overview' ? 'Obras recentes' : pages[visiblePage]}</h3>{loading ? <p role="status">Carregando…</p> : !error && profile?.access && (rows.length ? <table><thead>{worksPage ? <tr><th>Identificação</th><th>Categoria</th><th>Status</th></tr> : visiblePage === 'empresas' ? <tr><th>Empresa</th><th>Situação</th></tr> : <tr><th>Login</th><th>Perfil</th><th>Equipe</th></tr>}</thead><tbody>{rows.map(row => <tr key={row.id}>{worksPage ? <><td>{row.identificacao}</td><td>{row.categoria}</td><td>{row.status}</td></> : visiblePage === 'empresas' ? <><td>{row.nome}</td><td>{row.ativa ? 'Ativa' : 'Inativa'}</td></> : <><td>{row.login}</td><td>{row.tipo}</td><td>{row.nome_equipe || '—'}</td></>}</tr>)}</tbody></table> : <p>{worksPage ? 'Nenhuma obra cadastrada.' : visiblePage === 'empresas' ? 'Nenhuma empresa cadastrada.' : 'Nenhum acesso cadastrado.'}</p>)}</section>
+    {['overview','obras','relatorios'].includes(visiblePage) && profile?.access && !loading && !error && <ObrasPanel key={session.user.id + ':' + visiblePage + ':' + refresh} token={session.access_token} manager={manager} page={visiblePage} request={request}/>}
+    {['empresas','acessos'].includes(visiblePage) && <section className="card" aria-busy={loading}><h3>{visiblePage === 'overview' ? 'Obras recentes' : pages[visiblePage]}</h3>{loading ? <p role="status">Carregando…</p> : !error && profile?.access && (rows.length ? <table><thead>{worksPage ? <tr><th>Identificação</th><th>Categoria</th><th>Status</th></tr> : visiblePage === 'empresas' ? <tr><th>Empresa</th><th>Situação</th></tr> : <tr><th>Login</th><th>Perfil</th><th>Equipe</th></tr>}</thead><tbody>{rows.map(row => <tr key={row.id}>{worksPage ? <><td>{row.identificacao}</td><td>{row.categoria}</td><td>{row.status}</td></> : visiblePage === 'empresas' ? <><td>{row.nome}</td><td>{row.ativa ? 'Ativa' : 'Inativa'}</td></> : <><td>{row.login}</td><td>{row.tipo}</td><td>{row.nome_equipe || '—'}</td></>}</tr>)}</tbody></table> : <p>{worksPage ? 'Nenhuma obra cadastrada.' : visiblePage === 'empresas' ? 'Nenhuma empresa cadastrada.' : 'Nenhum acesso cadastrado.'}</p>)}</section>}
   </main></div>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
-
