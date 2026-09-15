@@ -1,5 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {exportCsv} from './reports.js';
+import {MaterialEditor,MaterialSummary} from './materiais.jsx';
+import {materialTotals} from './material-totals.js';
 
 export const categories = {rede_gpon:'Rede GPON',adequacao_predial:'Adequação predial',sites:'Sites',instalacao_cliente:'Instalação cliente',instalacao_b2b:'Instalação B2B',backbone:'Backbone'};
 const statuses = {pendente:'Pendente',em_andamento:'Em andamento',concluida:'Concluída'};
@@ -8,12 +10,20 @@ const date = value => value ? value.slice(0,10).split('-').reverse().join('/') :
 const number = value => Number(value || 0).toLocaleString('pt-BR',{maximumFractionDigits:2});
 const initialFilters = {empresa_id:'',categoria:'',status:'',de:'',ate:''};
 
-function WorkForm({work,manager,companies,onSave,onCancel,busy,error}) {
+function WorkForm({work,manager,companies,catalog,onSave,onCancel,busy,error}) {
   const [form,setForm] = useState(()=>({...work}));
+  const [materials,setMaterials]=useState(()=>(work.materiais||[]).map(r=>({...r,rowKey:crypto.randomUUID()})));
+  const [materialError,setMaterialError]=useState('');
   const set = (key,value) => setForm(current=>({...current,[key]:value}));
   function submit(e) {
     e.preventDefault();
+    if ((form.materiais_obrigatorios&&!materials.length) || materialTotals(materials).incomplete) {
+      setMaterialError('Preencha modelo, medida e quantidade positiva em todos os materiais. O preenchimento obrigatório exige ao menos um lançamento.'); return;
+    }
+    setMaterialError('');
     const body={};
+    body.materiais=materials.map(({material_id,unidade,quantidade})=>({material_id,unidade,quantidade:Number(quantidade)}));
+    if(manager) body.materiais_obrigatorios=Boolean(form.materiais_obrigatorios);
     for(const key of ['identificacao','categoria','data_recebimento_demanda','data_inicio','data_fim','capacidade_cabo']) body[key]=form[key] || null;
     for(const key of Object.keys(quantities)) body[key]=form[key] === '' || form[key] == null ? null : Number(form[key]);
     if(manager) { body.empresa_id=form.empresa_id; if(work.id) body.id_linko=form.id_linko; }
@@ -30,7 +40,8 @@ function WorkForm({work,manager,companies,onSave,onCancel,busy,error}) {
       <label>Data de término<input type="date" min={form.data_inicio || form.data_recebimento_demanda || undefined} value={form.data_fim || ''} onChange={e=>set('data_fim',e.target.value)}/></label>
       <label>Capacidade do cabo<input maxLength={500} value={form.capacidade_cabo || ''} onChange={e=>set('capacidade_cabo',e.target.value)}/></label>
       {Object.entries(quantities).map(([key,label])=><label key={key}>{label}<input type="number" min="0" step={['metragem_cabo','canalizacao_metragem'].includes(key)?'any':'1'} value={form[key] ?? ''} onChange={e=>set(key,e.target.value)}/></label>)}
-    </div></fieldset>
+    </div><MaterialEditor items={materials} onChange={setMaterials} catalog={catalog} manager={manager} required={Boolean(form.materiais_obrigatorios)} onRequiredChange={v=>set('materiais_obrigatorios',v)}/></fieldset>
+    {materialError&&<p className="error" role="alert">{materialError}</p>}
     {error && <p className="error" role="alert">{error}</p>}
     <div className="actions"><button disabled={busy}>{busy?'Salvando…':'Salvar obra'}</button><button type="button" className="secondary" disabled={busy} onClick={onCancel}>Cancelar</button></div>
   </form></section>;
@@ -43,6 +54,16 @@ export function ObrasPanel({token,manager,page,request}) {
   const [loading,setLoading]=useState(true), [error,setError]=useState(''), [notice,setNotice]=useState('');
   const [editor,setEditor]=useState(null), [deleting,setDeleting]=useState(null), [busy,setBusy]=useState(false), [saveError,setSaveError]=useState('');
   const [refresh,setRefresh]=useState(0);
+  const [catalog,setCatalog]=useState([]), [catalogError,setCatalogError]=useState(''), [catalogLoading,setCatalogLoading]=useState(true);
+  useEffect(()=>{
+    const controller=new AbortController(); setCatalogLoading(true); setCatalogError('');setCatalog([]);
+    request('/api/materiais',token,controller.signal).then(data=>{
+      if(!Array.isArray(data)||!data.length) throw new Error('Catálogo de materiais indisponível.');
+      if(!controller.signal.aborted)setCatalog(data);
+    }).catch(e=>{if(!controller.signal.aborted)setCatalogError(e.message);})
+      .finally(()=>{if(!controller.signal.aborted)setCatalogLoading(false);});
+    return()=>controller.abort();
+  },[token,request,refresh]);
   const alive=useRef(true);
   useEffect(()=>{alive.current=true; return()=>{alive.current=false;};},[]);
   useEffect(()=>{
@@ -78,9 +99,12 @@ export function ObrasPanel({token,manager,page,request}) {
   }
   const metrics=summary || {total:rows.length,pendentes:rows.filter(r=>!r.data_inicio&&!r.data_fim).length,em_andamento:rows.filter(r=>r.data_inicio&&!r.data_fim).length,concluidas:rows.filter(r=>r.data_fim).length};
   return <>
-    <div className="actions toolbar">{!reports && <button disabled={loading||busy||Boolean(error)} onClick={()=>{setEditor({});setDeleting(null);setSaveError('');}}>Cadastrar obra</button>}{!reports && <a className="button secondary" href="#relatorios">Relatórios gerenciais</a>}{reports && <button disabled={loading||Boolean(error)||!rows.length} onClick={()=>exportCsv(rows,categories,statuses)}>Exportar CSV</button>}</div>
+    <div className="actions toolbar">{!reports && <button disabled={loading||busy||Boolean(error)||catalogLoading||Boolean(catalogError)} onClick={()=>{setEditor({});setDeleting(null);setSaveError('');}}>Cadastrar obra</button>}{!reports && <a className="button secondary" href="#relatorios">Relatórios gerenciais</a>}{reports && <button disabled={loading||Boolean(error)||!rows.length} onClick={()=>exportCsv(rows,categories,statuses,catalog)}>Exportar CSV</button>}</div>
+    {catalogLoading&&<p role="status">Carregando catálogo de materiais…</p>}
+    {catalogError&&<p className="error" role="alert">Não foi possível carregar os materiais: {catalogError} <button type="button" onClick={()=>setRefresh(n=>n+1)}>Tentar novamente</button></p>}
+    {reports&&!loading&&!error&&catalog.length>0&&<section className="card"><h3>Materiais no período</h3><MaterialSummary items={rows.flatMap(r=>r.materiais||[])} catalog={catalog}/></section>}
     {notice && <p className="success" role="status">{notice}</p>}
-    {editor && <WorkForm key={editor.id||'new'} work={editor} manager={manager} companies={companies} onSave={save} onCancel={()=>setEditor(null)} busy={busy} error={saveError}/>}
+    {editor && <WorkForm key={editor.id||'new'} work={editor} manager={manager} companies={companies} catalog={catalog} onSave={save} onCancel={()=>setEditor(null)} busy={busy} error={saveError}/>}
     {deleting && <section className="card deletion" aria-labelledby="delete-title"><h3 id="delete-title">Excluir {deleting.id_linko}?</h3><p>A obra “{deleting.identificacao}” e seus registros de anexos serão removidos permanentemente.</p>{saveError && <p className="error" role="alert">{saveError}</p>}<div className="actions"><button className="danger" disabled={busy} onClick={remove}>{busy?'Excluindo…':'Confirmar exclusão'}</button><button className="secondary" disabled={busy} onClick={()=>setDeleting(null)}>Cancelar</button></div></section>}
     <form className="card filters" onSubmit={e=>{e.preventDefault();setApplied({...filters});}}>
       <div className="form-grid">{manager && <label>Empresa<select value={filters.empresa_id} onChange={e=>setFilters({...filters,empresa_id:e.target.value})}><option value="">Todas as empresas</option>{companies.map(c=><option key={c.id} value={c.id}>{c.nome}</option>)}</select></label>}
@@ -94,7 +118,7 @@ export function ObrasPanel({token,manager,page,request}) {
     {!loading && !error && <><div className="metrics report-metrics">{Object.entries({total:'Obras cadastradas',pendentes:'Pendentes',em_andamento:'Em andamento',concluidas:'Concluídas'}).map(([key,label])=><div key={key}><span>{label}</span><b>{number(metrics[key])}</b></div>)}</div>
       {reports && summary && <section className="card"><h3>Produção no período</h3><p>Totais das obras selecionadas pela data de recebimento da demanda.</p><dl className="production">{Object.entries(quantities).map(([key,label])=><div key={key}><dt>{label}</dt><dd>{number(summary[key])}</dd></div>)}</dl></section>}</>}
     <section className="card" aria-busy={loading}><h3>{reports?'Relatório de obras':page==='overview'?'Obras recentes':'Obras cadastradas'}</h3><p>{manager?'Visualização de todas as empresas, conforme os filtros aplicados.':'Visualização restrita às obras da sua empresa.'}</p>
-      {loading?<p role="status">Carregando obras…</p>:!error&&(rows.length?<div className="table-scroll"><table><thead><tr><th>ID/OBRA Linko</th><th>Identificação</th><th>Empresa</th><th>Categoria</th><th>Status</th><th>Recebimento</th><th>Início</th><th>Término</th>{!reports&&<th>Ações</th>}</tr></thead><tbody>{rows.map(row=><tr key={row.id}><td className="work-id">{row.id_linko}</td><td>{row.identificacao}</td><td>{row.empresa_nome}</td><td>{categories[row.categoria]||row.categoria}</td><td><span className={'status '+row.status}>{statuses[row.status]||row.status}</span></td><td>{date(row.data_recebimento_demanda)}</td><td>{date(row.data_inicio)}</td><td>{date(row.data_fim)}</td>{!reports&&<td><div className="actions"><button className="secondary" disabled={busy} aria-label={'Editar '+row.id_linko} onClick={()=>{setEditor(row);setDeleting(null);setSaveError('');}}>Editar</button>{manager&&<button className="danger" disabled={busy} aria-label={'Excluir '+row.id_linko} onClick={()=>{setDeleting(row);setEditor(null);setSaveError('');}}>Excluir</button>}</div></td>}</tr>)}</tbody></table></div>:<p>Nenhuma obra encontrada para os filtros selecionados.</p>)}
+      {loading?<p role="status">Carregando obras…</p>:!error&&(rows.length?<div className="table-scroll"><table><thead><tr><th>ID/OBRA Linko</th><th>Identificação</th><th>Empresa</th><th>Categoria</th><th>Status</th><th>Recebimento</th><th>Início</th><th>Término</th><th>Materiais aplicados</th>{!reports&&<th>Ações</th>}</tr></thead><tbody>{rows.map(row=><tr key={row.id}><td className="work-id">{row.id_linko}</td><td>{row.identificacao}</td><td>{row.empresa_nome}</td><td>{categories[row.categoria]||row.categoria}</td><td><span className={'status '+row.status}>{statuses[row.status]||row.status}</span></td><td>{date(row.data_recebimento_demanda)}</td><td>{date(row.data_inicio)}</td><td>{date(row.data_fim)}</td><td><details><summary>{row.materiais_obrigatorios?'Obrigatório · ':''}{number(materialTotals(row.materiais).un)} un · {Number(materialTotals(row.materiais).m).toLocaleString('pt-BR',{maximumFractionDigits:3})} m</summary><MaterialSummary items={row.materiais} catalog={catalog}/></details></td>{!reports&&<td><div className="actions"><button className="secondary" disabled={busy||catalogLoading||Boolean(catalogError)} aria-label={'Editar '+row.id_linko} onClick={()=>{setEditor(row);setDeleting(null);setSaveError('');}}>Editar</button>{manager&&<button className="danger" disabled={busy} aria-label={'Excluir '+row.id_linko} onClick={()=>{setDeleting(row);setEditor(null);setSaveError('');}}>Excluir</button>}</div></td>}</tr>)}</tbody></table></div>:<p>Nenhuma obra encontrada para os filtros selecionados.</p>)}
     </section>
   </>;
 }
