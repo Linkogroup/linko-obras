@@ -1,14 +1,20 @@
+import {validateMaterials} from './materiais.js';
 export const categories = ['rede_gpon','adequacao_predial','sites','instalacao_cliente','instalacao_b2b','backbone'];
 const quantities = ['metragem_cabo','fusoes','canalizacao_metragem','caixas_subterraneas','caixas_emenda','adequacao_rede'];
 const integers = quantities.filter(k => !['metragem_cabo','canalizacao_metragem'].includes(k));
 const dates = ['data_recebimento_demanda','data_inicio','data_fim'];
-const editable = ['identificacao','categoria',...dates,'capacidade_cabo',...quantities];
+const editable = ['identificacao','categoria',...dates,'capacidade_cabo',...quantities,'materiais'];
 export function payload(body, manager, creating = false) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Dados da obra inválidos.');
-  const allowed = [...editable, ...(manager ? ['empresa_id', ...(!creating ? ['id_linko'] : [])] : [])];
+  const allowed = [...editable, ...(manager ? ['empresa_id','materiais_obrigatorios', ...(!creating ? ['id_linko'] : [])] : [])];
   if (Object.keys(body).some(k => !allowed.includes(k))) throw new Error('Existem campos que seu perfil não pode alterar.');
   const row = {};
   for (const [key,value] of Object.entries(body)) {
+    if (key === 'materiais') { row[key]=validateMaterials(value); continue; }
+    if (key === 'materiais_obrigatorios') {
+      if(typeof value !== 'boolean') throw new Error('Obrigatoriedade inválida.');
+      row[key]=value; continue;
+    }
     if (quantities.includes(key)) {
       if (value === '' || value === null) { row[key] = null; continue; }
       if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || (integers.includes(key) && (!Number.isInteger(value) || value > 2147483647))) throw new Error('Informe quantidades válidas e não negativas.');
@@ -27,6 +33,7 @@ export function payload(body, manager, creating = false) {
   if (row.categoria && !categories.includes(row.categoria)) throw new Error('Categoria inválida.');
   if (row.id_linko && !/^[A-Z0-9][A-Z0-9_-]{2,63}$/.test(row.id_linko)) throw new Error('ID Linko deve ter de 3 a 64 letras maiúsculas, números, hífens ou sublinhados.');
   if (creating && ['identificacao','categoria','data_recebimento_demanda',...(manager ? ['empresa_id'] : [])].some(k => !row[k])) throw new Error('Preencha identificação, categoria, recebimento e empresa.');
+  if (row.materiais_obrigatorios && (creating || row.materiais) && !row.materiais?.length) throw new Error('Informe ao menos um material: preenchimento obrigatório.');
   if (!Object.keys(row).length) throw new Error('Nenhuma informação para salvar.');
   return row;
 }
