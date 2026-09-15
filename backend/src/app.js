@@ -25,6 +25,7 @@ export function createApp({admin, scopedClient, frontendUrl}) {
   const manager = req => req.profile.tipo === 'gestor';
   const validId = id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
   function databaseError(res,error) {
+    if (error.code === 'P0001' && /material|materiais|Quantidade deve|lançamentos|modelo, unidade/.test(error.message || '')) return res.status(400).json({error:error.message});
     if (error.code === '23505') return res.status(409).json({error:'Este ID/OBRA Linko já está cadastrado.'});
     if (error.code === '42501') return res.status(403).json({error:'Seu perfil não permite esta operação.'});
     if (['23502','23503','23514','22P02','22007','22008','P0001'].includes(error.code)) return res.status(400).json({error:'Confira os campos, a empresa e a ordem das datas da obra.'});
@@ -48,6 +49,10 @@ export function createApp({admin, scopedClient, frontendUrl}) {
     res.json({user:{id:req.user.id,email:req.user.email},profile:req.profile,passwordChangeRequired:pending.data !== false,access:allowed.data === true});
   });
   app.use('/api',auth,access);
+  app.get('/api/materiais',async(req,res)=>{
+    try { res.json(await allRows(()=>req.scoped.from('materiais_catalogo').select('id,modelo').order('modelo').order('id'))); }
+    catch(error) { databaseError(res,error); }
+  });
   app.get('/api/usuarios',async(req,res)=>{
     if(!manager(req)) return res.status(403).json({error:'Somente gestores podem consultar acessos.'});
     try { res.json(await allRows(()=>req.scoped.from('usuarios').select('id,login,tipo,nome_equipe').order('login').order('id'))); }
