@@ -1,0 +1,66 @@
+name: GPT-Claude live handshake (approval gated)
+
+on:
+  pull_request:
+    types: [labeled]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  real-apis-synthetic-only:
+    # Somente PR #5 deste repositorio, criado pelo titular, com label explicita.
+    # Aprovacao e SHA sao validados no ambiente protegido antes de acessar APIs.
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == 'ai-real-test' &&
+      github.event.pull_request.number == 5 &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'Linkogroup' &&
+      github.event.pull_request.head.ref == 'ai/gpt-claude-pilot-20261025'
+    runs-on: ubuntu-latest
+    environment:
+      name: ai-homologacao
+    timeout-minutes: 5
+    steps:
+      - name: Validar aprovacao explicita e commit revisado
+        shell: bash
+        env:
+          APPROVAL_FLAG: ${{ vars.AI_PILOT_REAL_APPROVED }}
+          APPROVED_SHA: ${{ vars.AI_PILOT_APPROVED_COMMIT }}
+          CURRENT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "$APPROVAL_FLAG" != "yes" ]]; then
+            echo "::error title=Aprovacao ausente::Defina AI_PILOT_REAL_APPROVED=yes nas variaveis GitHub do repositorio ou ambiente ai-homologacao."
+            exit 1
+          fi
+          if [[ -z "$APPROVED_SHA" || "$APPROVED_SHA" != "$CURRENT_SHA" ]]; then
+            echo "::error title=Commit nao aprovado::Defina AI_PILOT_APPROVED_COMMIT com o SHA exato da HEAD revisada do PR."
+            exit 1
+          fi
+          echo "Autorizacao de homologacao e SHA conferidos, sem expor valores."
+
+      - name: Checkout somente commit aprovado
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Conferir sintaxe
+        run: npm --prefix experimental/ai-orchestrator run check
+
+      - name: Contato real com OpenAI e Anthropic (objetivo ficticio)
+        run: node experimental/ai-orchestrator/test/live-smoke.mjs
+        env:
+          AI_PILOT_MODE: real
+          AI_REAL_CALLS_APPROVED: "yes"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
