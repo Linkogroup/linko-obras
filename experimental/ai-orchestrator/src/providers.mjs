@@ -53,7 +53,7 @@ export function createAdapters(env, fetcher = fetch) {
   async function anthropic(content) {
     const headers = {
       "x-api-key": env.ANTHROPIC_API_KEY,
-      "anthropic-version": env.ANTHROPIC_VERSION || "2026-10-21"
+      "anthropic-version": env.ANTHROPIC_VERSION || "2023-06-01"
     };
     if (env.ANTHROPIC_WORKSPACE_ID) headers["anthropic-workspace-id"] = env.ANTHROPIC_WORKSPACE_ID;
     const data = await postJson(fetcher, ANTHROPIC_URL, headers, {
