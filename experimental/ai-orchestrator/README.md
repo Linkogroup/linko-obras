@@ -32,7 +32,7 @@ Executar `npm start`. O servico escuta somente `127.0.0.1:8791` e nao expoe endp
 - `AI_REAL_CALLS_APPROVED=yes` (habilitar **somente** depois de aprovacao de custo, dados e ambiente).
 - `OPENAI_API_KEY` e `ANTHROPIC_API_KEY`: secrets protegidos, restritos ao runtime de teste.
 - `OPENAI_MODEL` e `ANTHROPIC_MODEL`: IDs validos, escolhidos conforme acesso e orcamento.
-- `ANTHROPIC_VERSION`: versao da API (padrao no codigo: 2026-10-21); `ANTHROPIC_WORKSPACE_ID` se necessario.
+- `ANTHROPIC_VERSION`: versao da API (padrao no codigo: 2023-06-01); `ANTHROPIC_WORKSPACE_ID` se necessario.
 
 **Atencao:** esse piloto nao eh o Claude Code nem um agente que modifica repositorios.
 Para desenvolvimento real: configurar Claude Code GitHub Action com aprovacao de PR e permissao minima. Para comandos do GPT dispararem a API privada, criar depois uma ferramenta MCP autenticada em ambiente dedicado, nunca reaproveitando a API operacional Linko.
