@@ -62,7 +62,7 @@ test("sequencia real usa endpoints fixos e cliente simulado, nao chama rede", as
   ]);
   assert.equal(calls[0].body.store, false);
   assert.equal(calls[1].body.max_tokens, 700);
-  assert.equal(calls[1].options.headers["anthropic-version"], "2026-10-21");
+  assert.equal(calls[1].options.headers["anthropic-version"], "2023-06-01");
   assert.equal(result.review, "GPT resultado");
   assert.equal(result.proposal, "Claude proposta");
   assert.equal(result.writesPerformed, false);
